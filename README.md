@@ -1,40 +1,164 @@
 # LLM Guardrails Monitoring 3.0
 
-A real-time toxicity monitoring system for LLM conversations using **Detoxify** for multi-label classification and **Guardrails-AI** for policy enforcement. Fully containerized with Docker Compose.
+## Project Goal
 
-> **Version 3.0** - Complete rewrite with improved configuration, better error handling, and comprehensive documentation.
+**Real-time toxicity detection for LLM conversations** - Monitor and filter harmful content before it reaches your users.
+
+This system analyzes messages in real-time using machine learning (Detoxify), detects toxic content across 7 categories (insults, threats, hate speech, etc.), and provides a live monitoring dashboard with alerts.
+
+### What It Does
+
+```
+User Message → Kafka → Toxicity Analysis → Violation Detection → Alert Dashboard
+```
+
+1. **Ingests** conversations from CSV files or HuggingFace datasets
+2. **Analyzes** each message using Detoxify ML model (7 toxicity labels)
+3. **Scores** content with configurable severity weights (threats weighted higher)
+4. **Classifies** violations as LOW / MEDIUM / HIGH severity
+5. **Aggregates** violations over time windows to generate alerts
+6. **Visualizes** everything in a real-time Streamlit dashboard
+
+### Use Cases
+
+- **Content Moderation**: Pre-filter user messages before they reach an LLM
+- **Safety Monitoring**: Track toxic patterns in chatbot conversations
+- **Compliance**: Audit trail of all detected violations
+- **Research**: Analyze toxicity patterns in conversation datasets
 
 ---
 
-## Quick Start
+## Quick Start (5 Minutes)
 
 ### Prerequisites
 
-- **Docker Desktop** (with Docker Compose) - [Download here](https://www.docker.com/products/docker-desktop/)
-- **Python 3.10+** (Mac users: `brew install python@3.10` or use system Python)
-- **Guardrails Token** - Get one free at [hub.guardrailsai.com](https://hub.guardrailsai.com/)
-- **HuggingFace Token** (optional) - For LMSYS dataset access at [huggingface.co/settings/tokens](https://huggingface.co/settings/tokens)
+- **Docker Desktop** - [Download for Windows](https://docs.docker.com/desktop/install/windows-install/) | [Download for Mac](https://docs.docker.com/desktop/install/mac-install/)
+- **Python 3.10+**
+- **Guardrails Token** (free) - [Get one here](https://hub.guardrailsai.com/)
 
-### Installation
+### Step 1: Clone & Configure
 
 ```bash
-# 1. Clone repository
+# Clone repository
 git clone https://github.com/gez2code/LLM-Guardrails-Monitoring-3.0.git
 cd LLM-Guardrails-Monitoring-3.0
-
-# 2. Configure environment
-cp .env.example .env
 ```
 
-Edit `.env` and add your tokens (see [Token Setup](#token-setup) for detailed instructions):
+**Create environment file:**
+
+| OS | Command |
+|----|---------|
+| **Windows (PowerShell)** | `copy .env.example .env` |
+| **Windows (CMD)** | `copy .env.example .env` |
+| **Mac / Linux** | `cp .env.example .env` |
+
+**Edit `.env`** and add your Guardrails token:
 ```env
-GUARDRAILS_TOKEN=your_guardrails_token_here
-HF_TOKEN=your_huggingface_token_here  # Optional
+GUARDRAILS_TOKEN=your_token_here
+```
+
+### Step 2: Start Services
+
+```bash
+# Start all containers (first run takes ~10 minutes to build)
+docker compose up --build -d
+
+# Wait for healthy status
+docker compose ps
+```
+
+All containers should show "running" or "healthy".
+
+### Step 3: Ingest Sample Data
+
+**Create virtual environment:**
+
+| OS | Command |
+|----|---------|
+| **Windows** | `python -m venv venv` |
+| **Mac / Linux** | `python3 -m venv venv` |
+
+**Activate virtual environment:**
+
+| OS | Command |
+|----|---------|
+| **Windows (PowerShell)** | `.\venv\Scripts\Activate.ps1` |
+| **Windows (CMD)** | `venv\Scripts\activate.bat` |
+| **Mac / Linux** | `source venv/bin/activate` |
+
+**Install dependencies and run:**
+
+```bash
+pip install -r requirements.txt
+
+# Ingest sample data (28 messages included)
+python scripts/fast_ingest_lmsys.py --csv-path data/raw/conversations.csv
+```
+
+### Step 4: Open Dashboard
+
+🎉 **Open http://localhost:8501** - You should see violations appearing!
+
+### Quick Links
+
+| Service | URL | Description |
+|---------|-----|-------------|
+| **Dashboard** | http://localhost:8501 | Monitoring UI |
+| **Kafka UI** | http://localhost:8080 | Message inspection |
+
+---
+
+## Features
+
+- **Multi-Label Toxicity Detection**: 7 categories via Detoxify ML model
+- **Weighted Severity Scoring**: Threats and hate speech weighted higher
+- **Real-Time Processing**: Kafka-based streaming architecture
+- **Sliding Window Alerts**: Time-aggregated alert generation
+- **Horizontal Scaling**: Run multiple processors in parallel
+- **Monitoring Dashboard**: Live Streamlit visualization
+- **Dockerized**: One command to start everything
+
+> **Version 3.0** - Complete rewrite with improved configuration, better error handling, and comprehensive documentation.
+>
+> Based on the original project by [TipsyPanda](https://github.com/TipsyPanda/LLM-Monitoring-guardrails)
+
+---
+
+## Data Ingestion Options
+
+### Option 1: CSV File (Recommended for Testing)
+
+```bash
+python scripts/fast_ingest_lmsys.py --csv-path data/raw/conversations.csv
+```
+
+A sample CSV with 28 messages is included in the repository.
+
+### Option 2: HuggingFace Dataset (Requires Access)
+
+> **Note:** The LMSYS dataset is gated. You must request access at [huggingface.co/datasets/lmsys/lmsys-chat-1m](https://huggingface.co/datasets/lmsys/lmsys-chat-1m)
+
+```bash
+# After access is granted:
+python scripts/hf_ingest_lmsys.py --limit 100
+```
+
+### Option 3: Custom Data
+
+Send messages directly to Kafka topic `llm.conversations`:
+
+```json
+{
+  "conversation_id": "conv_001",
+  "text": "Your message text here",
+  "speaker": "user",
+  "timestamp": "2025-01-31T10:30:00Z"
+}
 ```
 
 ---
 
-## Token Setup
+## Token Setup (Detailed)
 
 ### Guardrails Token (Required)
 
@@ -78,92 +202,6 @@ The LMSYS-Chat-1M dataset is **gated** - you need to request access separately:
 5. Wait for approval (can take minutes to days)
 
 Once approved, the `hf_ingest_lmsys.py` script will work automatically.
-
-```bash
-# 3. Start all services (first build takes ~10 minutes)
-docker compose up --build -d
-
-# 4. Wait for containers to be healthy
-docker compose ps
-```
-
-### Ingest Sample Data
-
-```bash
-# Create Python virtual environment
-# Windows:
-python -m venv venv
-
-# Mac/Linux (may need python3):
-python3 -m venv venv
-```
-
-**Activate virtual environment:**
-
-| OS | Command |
-|----|---------|
-| **Windows (PowerShell)** | `.\venv\Scripts\Activate.ps1` |
-| **Windows (CMD)** | `venv\Scripts\activate.bat` |
-| **Mac / Linux** | `source venv/bin/activate` |
-
-```bash
-# Install dependencies
-pip install -r requirements.txt
-
-# Ingest sample data (included in repo)
-python scripts/fast_ingest_lmsys.py --csv-path data/raw/conversations.csv
-```
-
-### Access the Dashboard
-
-Open **http://localhost:8501** in your browser.
-
-You should see violations appearing within seconds!
-
----
-
-## Services Overview
-
-| Service | URL | Description |
-|---------|-----|-------------|
-| **Dashboard** | http://localhost:8501 | Real-time monitoring UI |
-| **Kafka UI** | http://localhost:8080 | Message inspection & debugging |
-| **Kafka** | localhost:9092 | Message broker |
-| **Zookeeper** | localhost:2181 | Kafka coordination |
-
----
-
-## Data Ingestion Options
-
-### Option 1: CSV File (Recommended for Testing)
-
-```bash
-python scripts/fast_ingest_lmsys.py --csv-path data/raw/conversations.csv
-```
-
-A sample CSV with 28 messages is included in the repository.
-
-### Option 2: HuggingFace Dataset (Requires Access)
-
-> **Note:** The LMSYS dataset is gated. You must request access at [huggingface.co/datasets/lmsys/lmsys-chat-1m](https://huggingface.co/datasets/lmsys/lmsys-chat-1m)
-
-```bash
-# After access is granted:
-python scripts/hf_ingest_lmsys.py --limit 100
-```
-
-### Option 3: Custom Data
-
-Send messages directly to Kafka topic `llm.conversations`:
-
-```json
-{
-  "conversation_id": "conv_001",
-  "text": "Your message text here",
-  "speaker": "user",
-  "timestamp": "2025-01-31T10:30:00Z"
-}
-```
 
 ---
 
