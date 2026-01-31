@@ -172,6 +172,155 @@ You should see violations appearing within seconds!
 
 ---
 
+## Understanding Kafka in This Project
+
+### What is Kafka?
+
+**Apache Kafka** is a distributed event streaming platform - think of it as a high-speed message highway between services.
+
+```
+┌─────────────┐         ┌─────────────┐         ┌─────────────┐
+│   Producer  │ ──────► │    KAFKA    │ ──────► │   Consumer  │
+│ (sends msg) │         │   (stores)  │         │ (reads msg) │
+└─────────────┘         └─────────────┘         └─────────────┘
+```
+
+**Why Kafka instead of direct connections?**
+- **Decoupling**: Producers and consumers don't need to know about each other
+- **Buffering**: Messages are stored even if consumers are slow or offline
+- **Scalability**: Multiple consumers can read from the same topic in parallel
+- **Reliability**: Messages aren't lost if a service crashes
+
+### Topics Explained
+
+A **Topic** is like a named channel or mailbox where messages are stored.
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                         KAFKA                                │
+│                                                              │
+│   ┌─────────────────────────────────────────────────────┐   │
+│   │  Topic: llm.conversations                            │   │
+│   │  ┌─────┐ ┌─────┐ ┌─────┐ ┌─────┐ ┌─────┐           │   │
+│   │  │msg 1│ │msg 2│ │msg 3│ │msg 4│ │msg 5│ ──►       │   │
+│   │  └─────┘ └─────┘ └─────┘ └─────┘ └─────┘           │   │
+│   └─────────────────────────────────────────────────────┘   │
+│                                                              │
+│   ┌─────────────────────────────────────────────────────┐   │
+│   │  Topic: guardrail.violations                         │   │
+│   │  ┌─────┐ ┌─────┐ ┌─────┐                            │   │
+│   │  │vio 1│ │vio 2│ │vio 3│ ──►                        │   │
+│   │  └─────┘ └─────┘ └─────┘                            │   │
+│   └─────────────────────────────────────────────────────┘   │
+│                                                              │
+└─────────────────────────────────────────────────────────────┘
+```
+
+### Topics in This Project
+
+| Topic | Purpose | Producer | Consumer |
+|-------|---------|----------|----------|
+| `llm.conversations` | Raw user messages waiting to be analyzed | Ingestion scripts | Guardrails Processor |
+| `guardrail.violations` | Detected toxic content | Guardrails Processor | Alert Consumer |
+
+### How Messages Flow
+
+```
+                        YOUR DATA
+                            │
+                            ▼
+┌──────────────────────────────────────────────────────────────────────┐
+│  STEP 1: You run an ingestion script                                  │
+│                                                                       │
+│  python scripts/fast_ingest_lmsys.py                                 │
+│         │                                                             │
+│         ▼                                                             │
+│  Script reads CSV/HuggingFace data and sends each message to Kafka   │
+└──────────────────────────────────────────────────────────────────────┘
+                            │
+                            ▼
+┌──────────────────────────────────────────────────────────────────────┐
+│  STEP 2: Messages land in llm.conversations topic                     │
+│                                                                       │
+│  Kafka stores them and waits for a consumer to read them             │
+└──────────────────────────────────────────────────────────────────────┘
+                            │
+                            ▼
+┌──────────────────────────────────────────────────────────────────────┐
+│  STEP 3: Guardrails Processor (Docker container) reads messages       │
+│                                                                       │
+│  For each message:                                                    │
+│  • Runs Detoxify ML model                                            │
+│  • Calculates toxicity scores                                        │
+│  • If toxic → sends to guardrail.violations topic                    │
+│  • If clean → discards                                               │
+└──────────────────────────────────────────────────────────────────────┘
+                            │
+                            ▼
+┌──────────────────────────────────────────────────────────────────────┐
+│  STEP 4: Alert Consumer (Docker container) reads violations           │
+│                                                                       │
+│  • Aggregates violations in 5-minute windows                         │
+│  • Generates alerts when thresholds exceeded                         │
+│  • Writes to outputs/alerts.jsonl                                    │
+└──────────────────────────────────────────────────────────────────────┘
+                            │
+                            ▼
+┌──────────────────────────────────────────────────────────────────────┐
+│  STEP 5: Dashboard reads output files and displays results            │
+│                                                                       │
+│  http://localhost:8501                                               │
+└──────────────────────────────────────────────────────────────────────┘
+```
+
+### Consumer Groups
+
+A **Consumer Group** is a team of consumers that work together to read from a topic. Kafka ensures each message is processed by only ONE consumer in the group.
+
+```
+                    llm.conversations
+                          │
+          ┌───────────────┼───────────────┐
+          │               │               │
+          ▼               ▼               ▼
+     ┌─────────┐    ┌─────────┐    ┌─────────┐
+     │Processor│    │Processor│    │Processor│
+     │   #1    │    │   #2    │    │   #3    │
+     └─────────┘    └─────────┘    └─────────┘
+          │               │               │
+          └───────────────┴───────────────┘
+                          │
+                Consumer Group:
+          "guardrail-input-processor-group"
+          
+     Kafka distributes messages evenly!
+     No message is processed twice.
+```
+
+| Consumer Group | Service | Can Scale? | Purpose |
+|----------------|---------|------------|---------|
+| `guardrail-input-processor-group` | Guardrails Processor | Yes (1-N) | Parallel toxicity analysis |
+| `alert-consumer-group` | Alert Consumer | No (1 only) | Maintains time-window state |
+
+### Viewing Kafka Data
+
+**Kafka UI (Recommended):** Open http://localhost:8080
+
+- Click **Topics** → See all topics and message counts
+- Click a topic → **Messages** → See actual message content
+- Click **Consumer Groups** → See processing progress and lag
+
+**Command Line:**
+
+| OS | Command | Description |
+|----|---------|-------------|
+| **Windows & Mac** | `docker compose exec kafka kafka-topics --bootstrap-server localhost:9092 --list` | List all topics |
+| **Windows & Mac** | `docker compose exec kafka kafka-console-consumer --bootstrap-server localhost:9092 --topic llm.conversations --from-beginning` | Read all messages |
+
+Press `Ctrl+C` to stop reading messages.
+
+---
+
 ## Data Ingestion Options
 
 ### Option 1: CSV File (Recommended for Testing)
