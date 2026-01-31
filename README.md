@@ -169,6 +169,10 @@ Send messages directly to Kafka topic `llm.conversations`:
 
 ## Architecture
 
+### System Overview
+
+This system implements a **real-time toxicity monitoring pipeline** using event-driven architecture. Messages flow through Kafka topics, get analyzed by ML models, and results are aggregated into actionable alerts.
+
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
 │                              DOCKER COMPOSE                                  │
@@ -177,33 +181,394 @@ Send messages directly to Kafka topic `llm.conversations`:
 │  │  Zookeeper  │◄────►│    Kafka    │◄────►│   Kafka UI   │                 │
 │  │    :2181    │      │    :9092    │      │    :8080     │                 │
 │  └─────────────┘      └──────┬──────┘      └──────────────┘                 │
+│         │                    │                    │                          │
+│   Cluster         Message Broker          Web Interface                     │
+│   Coordination    (Event Streaming)       (Monitoring)                      │
 │                              │                                               │
 │              ┌───────────────┴───────────────┐                              │
 │              │                               │                              │
 │              ▼                               ▼                              │
 │   Topic: llm.conversations       Topic: guardrail.violations                │
+│   (Raw user messages)            (Detected toxic content)                   │
 │              │                               ▲                              │
 │              ▼                               │                              │
 │  ┌───────────────────────┐                   │                              │
 │  │  Guardrails Processor │───────────────────┘                              │
-│  │  • Detoxify Model     │                                                  │
-│  │  • Weighted Scoring   │────────────┐                                     │
-│  │  • Severity Buckets   │            │                                     │
-│  └───────────────────────┘            │                                     │
-│                                       ▼                                     │
-│                          ┌───────────────────────┐                          │
-│                          │    Alert Consumer     │                          │
-│                          │  • Sliding Window     │                          │
-│                          │  • Score Aggregation  │                          │
-│                          └───────────┬───────────┘                          │
-│                                      │                                      │
-│                                      ▼                                      │
-│                          ┌───────────────────────┐                          │
-│                          │      Dashboard        │                          │
-│                          │        :8501          │                          │
-│                          └───────────────────────┘                          │
+│  │  ┌─────────────────┐  │                                                  │
+│  │  │ Detoxify Model  │  │  ML-based toxicity detection                    │
+│  │  │ (7 labels)      │  │  with multi-label classification                │
+│  │  └─────────────────┘  │                                                  │
+│  │  ┌─────────────────┐  │                                                  │
+│  │  │ Weighted Scoring│  │  Configurable impact weights                    │
+│  │  │ (threat=2.0x)   │  │  prioritize dangerous content                   │
+│  │  └─────────────────┘  │                                                  │
+│  │  ┌─────────────────┐  │                                                  │
+│  │  │ Severity Bucket │  │  LOW / MEDIUM / HIGH                            │
+│  │  │ Classification  │  │  based on weighted scores                       │
+│  │  └─────────────────┘  │                                                  │
+│  └───────────────────────┘                                                  │
+│              │                                                               │
+│              │ Violations only (toxic messages)                             │
+│              ▼                                                               │
+│  ┌───────────────────────┐                                                  │
+│  │    Alert Consumer     │                                                  │
+│  │  ┌─────────────────┐  │                                                  │
+│  │  │ Sliding Window  │  │  5-minute aggregation window                    │
+│  │  │ (300 seconds)   │  │  per conversation                               │
+│  │  └─────────────────┘  │                                                  │
+│  │  ┌─────────────────┐  │                                                  │
+│  │  │ Score Summation │  │  Cumulative violation scores                    │
+│  │  │ & Thresholds    │  │  trigger alert levels                           │
+│  │  └─────────────────┘  │                                                  │
+│  └───────────┬───────────┘                                                  │
+│              │                                                               │
+│              ▼                                                               │
+│  ┌───────────────────────┐      ┌───────────────────────┐                   │
+│  │   outputs/            │      │      Dashboard        │                   │
+│  │   ├─ violations.jsonl │◄────►│        :8501          │                   │
+│  │   └─ alerts.jsonl     │      │   (Streamlit UI)      │                   │
+│  └───────────────────────┘      └───────────────────────┘                   │
+│         │                              │                                     │
+│   Persistent Storage           Real-time Visualization                      │
+│   (Audit Trail)                (Monitoring Dashboard)                       │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
+
+### Component Descriptions
+
+#### 1. Zookeeper (Port 2181)
+**Role:** Distributed coordination service for Kafka cluster management.
+
+- Maintains broker metadata and topic configurations
+- Handles leader election for Kafka partitions
+- Stores consumer group offsets (legacy mode)
+- Required for Kafka to function
+
+#### 2. Kafka Broker (Port 9092)
+**Role:** Distributed event streaming platform - the backbone of the system.
+
+- Receives messages from producers (ingestion scripts)
+- Stores messages in topics with configurable retention
+- Delivers messages to consumers (processors)
+- Enables decoupled, scalable architecture
+
+**Topics:**
+| Topic | Purpose | Retention |
+|-------|---------|-----------|
+| `llm.conversations` | Incoming user messages to analyze | 7 days |
+| `guardrail.violations` | Detected toxic content | 7 days |
+
+#### 3. Kafka UI (Port 8080)
+**Role:** Web-based interface for Kafka monitoring and debugging.
+
+- View topic contents and message flow
+- Monitor consumer group lag
+- Inspect message payloads
+- Debug connectivity issues
+
+#### 4. Guardrails Processor (Container)
+**Role:** Core ML processing engine - analyzes messages for toxic content.
+
+**Processing Pipeline:**
+```
+Input Message
+    │
+    ▼
+┌─────────────────────────────────────┐
+│         DETOXIFY MODEL              │
+│  Multilingual BERT-based classifier │
+│  trained on Wikipedia toxicity data │
+└─────────────────┬───────────────────┘
+                  │
+                  ▼
+┌─────────────────────────────────────┐
+│      7-LABEL CLASSIFICATION         │
+│  toxicity:        0.0 - 1.0        │
+│  severe_toxicity: 0.0 - 1.0        │
+│  insult:          0.0 - 1.0        │
+│  threat:          0.0 - 1.0        │
+│  identity_attack: 0.0 - 1.0        │
+│  obscene:         0.0 - 1.0        │
+│  sexual_explicit: 0.0 - 1.0        │
+└─────────────────┬───────────────────┘
+                  │
+                  ▼
+┌─────────────────────────────────────┐
+│       WEIGHTED SCORING              │
+│  Apply impact weights:              │
+│  • threat × 2.0 (dangerous)         │
+│  • identity_attack × 2.0 (hate)     │
+│  • severe_toxicity × 2.5 (extreme)  │
+│  • others × 1.0 (baseline)          │
+│                                     │
+│  weighted_score = MAX(all weighted) │
+└─────────────────┬───────────────────┘
+                  │
+                  ▼
+┌─────────────────────────────────────┐
+│       BINARY DECISION GATE          │
+│                                     │
+│  weighted_score >= 0.10 ?           │
+│     YES → Violation (continue)      │
+│     NO  → Clean (discard)           │
+└─────────────────┬───────────────────┘
+                  │
+                  ▼
+┌─────────────────────────────────────┐
+│      SEVERITY CLASSIFICATION        │
+│                                     │
+│  0.10 - 0.59 → LOW (yellow)         │
+│  0.60 - 0.84 → MEDIUM (orange)      │
+│  0.85+       → HIGH (red)           │
+└─────────────────┬───────────────────┘
+                  │
+                  ▼
+           Output Violation
+```
+
+#### 5. Alert Consumer (Container)
+**Role:** Aggregates violations over time and generates alerts.
+
+**Why Aggregation?**
+- Single violations may be false positives
+- Patterns over time indicate real problems
+- Reduces alert fatigue for operators
+
+**Sliding Window Algorithm:**
+```
+Time ────────────────────────────────────────────►
+
+Window (300 seconds)
+├─────────────────────────────────────────────────┤
+
+Violations in window:
+┌─────┐  ┌─────┐  ┌─────┐  ┌─────┐
+│ V1  │  │ V2  │  │ V3  │  │ V4  │
+│0.45 │  │0.85 │  │0.32 │  │0.91 │
+└─────┘  └─────┘  └─────┘  └─────┘
+    │        │        │        │
+    └────────┴────────┴────────┘
+                  │
+                  ▼
+    window_score = Σ = 2.53
+                  │
+                  ▼
+    2.53 >= 0.80 → HIGH ALERT 🚨
+```
+
+**Alert Thresholds:**
+| Window Score | Alert Level | Action |
+|--------------|-------------|--------|
+| ≥ 0.15 | LOW | Log for review |
+| ≥ 0.40 | MEDIUM | Notify moderator |
+| ≥ 0.80 | HIGH | Immediate action |
+
+#### 6. Dashboard (Port 8501)
+**Role:** Real-time visualization and monitoring interface.
+
+**Features:**
+- Live violation feed with severity highlighting
+- Time-series charts of violation trends
+- Alert history and statistics
+- Filter by severity, time range, conversation
+- Export data for further analysis
+
+### Data Flow
+
+```
+┌──────────────────────────────────────────────────────────────────────────┐
+│                           DATA FLOW                                       │
+└──────────────────────────────────────────────────────────────────────────┘
+
+STEP 1: INGESTION
+─────────────────
+    CSV File                    HuggingFace                 Custom App
+        │                           │                           │
+        ▼                           ▼                           ▼
+    fast_ingest_lmsys.py    hf_ingest_lmsys.py          Kafka Producer
+        │                           │                           │
+        └───────────────────────────┴───────────────────────────┘
+                                    │
+                                    ▼
+                        ┌───────────────────────┐
+                        │  llm.conversations    │
+                        │  (Kafka Topic)        │
+                        └───────────┬───────────┘
+                                    │
+STEP 2: PROCESSING                  │
+──────────────────                  ▼
+                        ┌───────────────────────┐
+                        │  Guardrails Processor │
+                        │  • Consume message    │
+                        │  • Run Detoxify       │
+                        │  • Calculate scores   │
+                        │  • Classify severity  │
+                        └───────────┬───────────┘
+                                    │
+                            ┌───────┴───────┐
+                            │               │
+                        CLEAN           VIOLATION
+                        (discard)           │
+                                            ▼
+                        ┌───────────────────────┐
+                        │ guardrail.violations  │
+                        │ (Kafka Topic)         │
+                        └───────────┬───────────┘
+                                    │
+STEP 3: AGGREGATION                 │
+───────────────────                 ▼
+                        ┌───────────────────────┐
+                        │    Alert Consumer     │
+                        │  • Consume violation  │
+                        │  • Add to window      │
+                        │  • Check thresholds   │
+                        │  • Generate alert     │
+                        └───────────┬───────────┘
+                                    │
+                            ┌───────┴───────┐
+                            │               │
+                     NO ALERT          ALERT TRIGGERED
+                     (continue)             │
+                                            ▼
+STEP 4: OUTPUT                  ┌───────────────────┐
+──────────────                  │  outputs/         │
+                                │  ├─ violations.jsonl
+                                │  └─ alerts.jsonl  │
+                                └─────────┬─────────┘
+                                          │
+STEP 5: VISUALIZATION                     │
+─────────────────────                     ▼
+                                ┌───────────────────┐
+                                │    Dashboard      │
+                                │  • Read JSONL     │
+                                │  • Render charts  │
+                                │  • Show alerts    │
+                                └───────────────────┘
+```
+
+### Horizontal Scaling
+
+The architecture supports horizontal scaling for high-throughput scenarios:
+
+```
+┌─────────────────────────────────────────────────────────────────────────┐
+│                        SCALED DEPLOYMENT                                 │
+│                                                                          │
+│    llm.conversations (3 partitions)                                     │
+│    ┌─────────┬─────────┬─────────┐                                      │
+│    │ Part 0  │ Part 1  │ Part 2  │                                      │
+│    └────┬────┴────┬────┴────┬────┘                                      │
+│         │         │         │                                            │
+│         ▼         ▼         ▼                                            │
+│    ┌─────────┐ ┌─────────┐ ┌─────────┐                                  │
+│    │Processor│ │Processor│ │Processor│  Consumer Group                  │
+│    │   #1    │ │   #2    │ │   #3    │  (load balanced)                 │
+│    └────┬────┘ └────┬────┘ └────┬────┘                                  │
+│         │         │         │                                            │
+│         └─────────┴─────────┘                                            │
+│                   │                                                      │
+│                   ▼                                                      │
+│         guardrail.violations                                            │
+│                   │                                                      │
+│                   ▼                                                      │
+│            ┌─────────────┐                                              │
+│            │   Alert     │  Single aggregator                           │
+│            │  Consumer   │  (maintains window state)                    │
+│            └─────────────┘                                              │
+└─────────────────────────────────────────────────────────────────────────┘
+
+Scale command:
+docker compose up --scale guardrails-processor=3 -d
+```
+
+**Scaling Considerations:**
+- **Partitions = Max Parallelism**: One partition can only be consumed by one processor
+- **State Management**: Alert Consumer should remain single instance (maintains window state)
+- **Resource Limits**: Each processor loads the Detoxify model (~400MB memory)
+
+### Message Formats
+
+#### Input Message (llm.conversations)
+```json
+{
+  "conversation_id": "conv_abc123",
+  "text": "The actual message content to analyze",
+  "timestamp": "2025-01-31T10:30:00Z",
+  "speaker": "user",
+  "metadata": {
+    "source": "chat_app",
+    "user_id": "user_456"
+  }
+}
+```
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `conversation_id` | string | ✓ | Unique identifier for the conversation |
+| `text` | string | ✓ | Message content to analyze |
+| `timestamp` | ISO8601 | ✗ | When the message was sent |
+| `speaker` | string | ✗ | Who sent the message (user/assistant) |
+| `metadata` | object | ✗ | Additional context |
+
+#### Violation Message (guardrail.violations)
+```json
+{
+  "conversation_id": "conv_abc123",
+  "original_text": "The toxic message content",
+  "weighted_score": 0.8234,
+  "severity": "high",
+  "toxicity_labels": ["toxicity", "insult", "threat"],
+  "timestamp": "2025-01-31T10:30:01Z",
+  "metadata": {
+    "scores": {
+      "toxicity": 0.72,
+      "severe_toxicity": 0.15,
+      "insult": 0.68,
+      "threat": 0.41,
+      "identity_attack": 0.08,
+      "obscene": 0.45,
+      "sexual_explicit": 0.02
+    },
+    "weights_applied": {
+      "threat": 2.0,
+      "identity_attack": 2.0,
+      "severe_toxicity": 2.5
+    },
+    "violation_threshold": 0.10,
+    "model": "detoxify-original"
+  }
+}
+```
+
+#### Alert Message (outputs/alerts.jsonl)
+```json
+{
+  "alert_id": "alert_conv_abc123_1706729400",
+  "conversation_id": "conv_abc123",
+  "danger_level": "high",
+  "window_score": 2.53,
+  "violation_count": 4,
+  "window_size_minutes": 5,
+  "timestamp": "2025-01-31T10:35:00Z",
+  "summary": {
+    "labels": ["toxicity", "insult", "threat"],
+    "max_severity": "high",
+    "violations": [
+      {"score": 0.45, "severity": "low"},
+      {"score": 0.85, "severity": "high"},
+      {"score": 0.32, "severity": "low"},
+      {"score": 0.91, "severity": "high"}
+    ]
+  }
+}
+```
+
+### Consumer Groups
+
+| Consumer Group | Service | Instances | Purpose |
+|----------------|---------|-----------|---------|
+| `guardrail-input-processor-group` | Guardrails Processor | 1-N | Parallel processing; Kafka distributes partitions |
+| `alert-consumer-group` | Alert Consumer | 1 | Single aggregator; maintains time-window state |
 
 ---
 
