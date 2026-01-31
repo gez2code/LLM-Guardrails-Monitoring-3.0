@@ -1,6 +1,8 @@
-# LLM Monitoring with Guardrails
+# LLM Guardrails Monitoring 3.0
 
 A real-time toxicity monitoring system for LLM conversations using **Detoxify** for multi-label classification and **Guardrails-AI** for policy enforcement. Fully containerized with Docker Compose.
+
+> **Version 3.0** - Complete rewrite with improved configuration, better error handling, and comprehensive documentation.
 
 ---
 
@@ -17,8 +19,8 @@ A real-time toxicity monitoring system for LLM conversations using **Detoxify** 
 
 ```bash
 # 1. Clone repository
-git clone https://github.com/TipsyPanda/LLM-Monitoring-guardrails.git
-cd LLM-Monitoring-guardrails
+git clone https://github.com/gez2code/LLM-Guardrails-Monitoring-3.0.git
+cd LLM-Guardrails-Monitoring-3.0
 
 # 2. Configure environment
 cp .env.example .env
@@ -355,7 +357,7 @@ Change ports in `docker-compose.yml` or stop conflicting services:
 ## Project Structure
 
 ```
-LLM-Monitoring-guardrails/
+LLM-Guardrails-Monitoring-3.0/
 ├── docker-compose.yml           # Container orchestration
 ├── Dockerfile.guardrails        # Processor image
 ├── Dockerfile.alert-consumer    # Alert consumer image
@@ -888,5 +890,9 @@ Apache License 2.0
 
 ## Author
 
-**TipsyPanda**  
-GitHub: [github.com/TipsyPanda/LLM-Monitoring-guardrails](https://github.com/TipsyPanda/LLM-Monitoring-guardrails)
+**gez2code**  
+GitHub: [github.com/gez2code/LLM-Guardrails-Monitoring-3.0](https://github.com/gez2code/LLM-Guardrails-Monitoring-3.0)
+
+### Credits
+
+Based on the original project by **TipsyPanda**: [github.com/TipsyPanda/LLM-Monitoring-guardrails](https://github.com/TipsyPanda/LLM-Monitoring-guardrails)
