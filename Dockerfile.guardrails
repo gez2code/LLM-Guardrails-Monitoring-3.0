@@ -1,0 +1,55 @@
+# Builder stage - install dependencies and configure guardrails
+FROM python:3.10-slim AS builder
+
+WORKDIR /app
+
+# Accept guardrails token as build argument
+ARG GUARDRAILS_TOKEN
+
+# Install system dependencies
+RUN apt-get update && apt-get install -y \
+    build-essential \
+    && rm -rf /var/lib/apt/lists/*
+
+# Create virtual environment
+RUN python3 -m venv /opt/venv
+ENV PATH="/opt/venv/bin:$PATH"
+
+# Copy requirements and install
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Configure guardrails with token
+RUN if [ -n "$GUARDRAILS_TOKEN" ]; then \
+        guardrails configure --enable-metrics --enable-remote-inferencing --token "$GUARDRAILS_TOKEN" && \
+        guardrails hub install hub://guardrails/toxic_language --quiet; \
+    else \
+        echo "WARNING: No GUARDRAILS_TOKEN provided"; \
+    fi
+
+# Create empty .guardrails folder if it doesn't exist (for COPY)
+RUN mkdir -p /root/.guardrails
+
+# Final stage
+FROM python:3.10-slim
+
+WORKDIR /app
+
+ENV PYTHONDONTWRITEBYTECODE=1
+ENV PYTHONUNBUFFERED=1
+
+# Copy virtual environment from builder
+COPY --from=builder /opt/venv /opt/venv
+ENV PATH="/opt/venv/bin:$PATH"
+
+# Copy guardrails config (may be empty but won't fail)
+COPY --from=builder /root/.guardrailsrc /root/.guardrailsrc
+COPY --from=builder /root/.guardrails /root/.guardrails
+
+# Copy source code
+COPY src/ ./src/
+
+# Create outputs directory
+RUN mkdir -p /app/outputs
+
+CMD ["python", "-m", "src.guardrail_input_processor"]

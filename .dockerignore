@@ -1,0 +1,37 @@
+# Git
+.git
+.gitignore
+
+# Python
+__pycache__
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+ENV/
+.venv
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Build
+*.egg-info/
+dist/
+build/
+
+# Local files
+.env
+*.log
+outputs/*.jsonl
+
+# Docker
+Dockerfile*
+docker-compose*.yml
+
+# Docs
+*.md
+LICENSE

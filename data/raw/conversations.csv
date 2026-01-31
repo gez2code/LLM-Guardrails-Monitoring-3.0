@@ -1,0 +1,32 @@
+conversation_id,text,timestamp,speaker
+conv_001,"Hello! How can I assist you today?",2025-01-15T10:00:00,agent
+conv_001,"I need help with my account",2025-01-15T10:00:15,user
+conv_002,"What a beautiful day!",2025-01-15T10:05:00,user
+conv_003,"You're an idiot and this service is pathetic!",2025-01-15T10:10:00,user
+conv_004,"Thank you for your help!",2025-01-15T10:15:00,user
+conv_005,"I will destroy you all!",2025-01-15T10:20:00,user
+conv_006,"This is slightly frustrating",2025-01-15T10:25:00,user
+conv_007,"You stupid moron, go to hell!",2025-01-15T10:30:00,user
+conv_008,"Fuck you and go kill yourself!",2025-01-15T10:30:00,user
+
+conv_001,"Hello! How can I assist you today?",2025-01-15T10:00:00,agent
+conv_001,"I need help with my account",2025-01-15T10:00:15,user
+conv_002,"What a beautiful day!",2025-01-15T10:05:00,user
+conv_003,"You're an idiot and this service is pathetic!",2025-01-15T10:10:00,user
+conv_004,"Thank you for your help!",2025-01-15T10:15:00,user
+conv_005,"I will destroy you all!",2025-01-15T10:20:00,user
+conv_006,"This is slightly frustrating",2025-01-15T10:25:00,user
+conv_007,"You stupid moron, go to hell!",2025-01-15T10:30:00,user
+conv_008,"Fuck you and go kill yourself!",2025-01-15T10:30:00,user
+
+conv_001,"Hello! How can I assist you today?",2025-01-15T10:00:00,agent
+conv_001,"I need help with my account",2025-01-15T10:00:15,user
+conv_002,"What a beautiful day!",2025-01-15T10:05:00,user
+conv_003,"You're an idiot and this service is pathetic!",2025-01-15T10:10:00,user
+conv_004,"Thank you for your help!",2025-01-15T10:15:00,user
+conv_005,"I will destroy you all!",2025-01-15T10:20:00,user
+conv_006,"This is slightly frustrating",2025-01-15T10:25:00,user
+conv_007,"You stupid moron, go to hell!",2025-01-15T10:30:00,user
+conv_008,"Fuck you and go kill yourself!",2025-01-15T10:30:00,user
+
+conv_999,"Go kill yourself you moron",2025-01-15T10:30:00,user

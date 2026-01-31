@@ -1,0 +1,25 @@
+# Core
+python-dotenv>=1.0.0
+loguru>=0.7.0
+pydantic>=2.0.0
+
+# Kafka
+kafka-python>=2.0.2
+
+# ML/Toxicity Detection
+detoxify>=0.5.0
+torch>=2.0.0
+transformers>=4.30.0
+
+# Guardrails
+guardrails-ai>=0.4.0
+
+# Dashboard
+streamlit>=1.30.0
+plotly>=5.18.0
+pandas>=2.0.0
+
+# HuggingFace (for dataset loading)
+datasets>=2.14.0
+huggingface_hub>=0.19.0
+lz4
